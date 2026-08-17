@@ -276,7 +276,11 @@ class CarpetasIntocablesEnElRecorrido(unittest.TestCase):
         self._crear("proyecto/node_modules/.package-lock.json")
         self._crear("proyecto/node_modules/express/index.js")
         self._crear("proyecto/__pycache__/modulo.cpython-313.pyc")
-        self._crear(".git/objects/ab/deadbeef")
+        # El `.git` va dentro de una subcarpeta, no en la raiz: aqui se prueba
+        # que el recorrido no ENTRA en el, y una raiz con `.git` se rechaza antes
+        # por otra via (ver RaizQueEsProyecto en test_archivos).
+        self._crear("repo-clonado/.git/objects/ab/deadbeef")
+        self._crear("repo-clonado/codigo.py")
         # Un archivo legitimo que SI debe organizarse.
         self._crear("foto-real.jpg")
 

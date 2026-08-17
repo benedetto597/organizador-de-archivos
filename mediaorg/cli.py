@@ -199,6 +199,18 @@ def construir_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Recorrer enlaces simbolicos y junctions (desactivado por seguridad).",
     )
+    grupo_filtros.add_argument(
+        "--incluir-ocultos",
+        action="store_true",
+        help="Procesar archivos ocultos, de sistema y los que empiezan por punto. "
+        "Por defecto se ignoran, junto con basura como Thumbs.db y desktop.ini.",
+    )
+    grupo_filtros.add_argument(
+        "--forzar-proyecto",
+        action="store_true",
+        help="Permitir que la carpeta indicada sea la raiz de un proyecto "
+        "(.git, package.json, requirements.txt...). Organizarla lo desarma.",
+    )
 
     grupo_otros = parser.add_argument_group("otros")
     grupo_otros.add_argument(
@@ -250,6 +262,8 @@ def _construir_configuracion(args: argparse.Namespace) -> Configuracion:
         "limite": args.limite,
         "tamano_minimo": args.tamano_minimo,
         "seguir_enlaces": args.seguir_enlaces,
+        "incluir_ocultos": args.incluir_ocultos,
+        "forzar_proyecto": args.forzar_proyecto,
     }
     if procesos is not None:
         parametros["procesos"] = procesos

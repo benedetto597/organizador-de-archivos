@@ -24,7 +24,9 @@ __all__ = [
     "CARPETA_PROYECTOS",
     "NOMBRES_SISTEMA_PROHIBIDOS",
     "CARPETAS_NO_TRANSITABLES",
+    "ARCHIVOS_BASURA_DEL_SISTEMA",
     "MARCADORES_DE_UNIDAD",
+    "MARCADORES_DE_UNIDAD_FUERTES",
     "CARPETA_HERRAMIENTA",
     "CARPETA_BORRAR",
     "CARPETA_TRABAJO",
@@ -74,12 +76,37 @@ NOMBRES_SISTEMA_PROHIBIDOS = frozenset(
 #: Solo se listan nombres que son inequivocamente artefactos de herramientas o
 #: del sistema: `build`, `dist` o `bin` quedan fuera a proposito, porque una
 #: persona puede tener una carpeta suya con ese nombre llena de archivos reales.
+#: Archivos que el sistema operativo genera y que no son del usuario. Moverlos
+#: es contraproducente: `desktop.ini` guarda la apariencia de la carpeta que lo
+#: contiene, y `Thumbs.db` se regenera solo.
+ARCHIVOS_BASURA_DEL_SISTEMA = frozenset(
+    {
+        "thumbs.db", "ehthumbs.db", "ehthumbs_vista.db", "desktop.ini",
+        ".ds_store", ".localized", "icon\r", "folder.jpg", "albumart.ini",
+        "iconcache.db", "ntuser.dat", "ntuser.ini", ".directory",
+    }
+)
+
 CARPETAS_NO_TRANSITABLES = NOMBRES_SISTEMA_PROHIBIDOS | frozenset(
     {
         ".svn", ".hg", ".venv", "venv", "__pycache__", ".tox", ".gradle",
         ".idea", ".vs", ".pytest_cache", ".mypy_cache", ".ruff_cache",
         ".next", ".nuxt", "bower_components", ".terraform", ".npm", ".nuget",
         ".cache", ".conda", ".ipynb_checkpoints", ".dart_tool", "obj",
+    }
+)
+
+#: Subconjunto de marcadores que por si solos prueban que la carpeta ES un
+#: proyecto, no que este cerca de uno. Se usan para RECHAZAR la carpeta de
+#: inicio, donde un falso positivo es caro: una carpeta de fotos con un
+#: `.gitignore` suelto no es un proyecto, pero una con `package.json` si.
+MARCADORES_DE_UNIDAD_FUERTES = frozenset(
+    {
+        ".git", ".svn", ".hg", "node_modules", ".venv",
+        "package.json", "requirements.txt", "pyproject.toml", "setup.py",
+        "cargo.toml", "go.mod", "pom.xml", "build.gradle", "composer.json",
+        "gemfile", "__manifest__.py", "__openerp__.py", "pubspec.yaml",
+        "mix.exs", "unins000.exe", "uninstall.exe", "app.asar",
     }
 )
 
@@ -233,6 +260,29 @@ def _rechazar_ruta_de_sistema(raiz: Path) -> None:
         )
 
 
+def _rechazar_raiz_que_es_unidad(raiz: Path) -> None:
+    """Impide organizar una carpeta que es la raiz de un proyecto.
+
+    El recorrido protege las subcarpetas que son unidades, pero la carpeta de
+    inicio quedaba exenta: apuntar la herramienta a un repositorio movia su
+    `README.md` a `Documentos\\Texto\\`, sus `.py` a `Codigo\\Python\\` y hasta el
+    propio `requirements.txt` que lo identificaba como proyecto.
+
+    Raises:
+        ConfiguracionInvalida: Si la carpeta trae un marcador de unidad.
+    """
+    from .escaneo import marcador_de_unidad  # import local: evita un ciclo
+
+    marcador = marcador_de_unidad(raiz, solo_fuertes=True)
+    if marcador is None:
+        return
+    raise ConfiguracionInvalida(
+        f"La carpeta indicada es la raiz de un proyecto ({marcador!r} esta dentro): "
+        f"{raiz}\nOrganizarla lo desarmaria. Indica una carpeta contenedora, o pasa "
+        "--forzar-proyecto si de verdad es lo que quieres."
+    )
+
+
 def _workers_por_defecto() -> int:
     """Elige el paralelismo por defecto para una carga limitada por disco.
 
@@ -270,6 +320,11 @@ class Configuracion:
         limite: Tope de archivos a procesar (0 = sin tope). Util para pruebas.
         tamano_minimo: Archivos mas pequenos que esto se ignoran.
         seguir_enlaces: Recorrer symlinks/junctions (desactivado por seguridad).
+        incluir_ocultos: Procesar archivos ocultos, de sistema y los que
+            empiezan por punto. Desactivado: mover `desktop.ini` cambia el
+            aspecto de una carpeta y `Thumbs.db` es basura regenerable.
+        forzar_proyecto: Permitir que la carpeta de inicio sea la raiz de un
+            proyecto. Desactivado, porque organizarla lo desarma.
     """
 
     raiz: Path
@@ -291,6 +346,8 @@ class Configuracion:
     limite: int = 0
     tamano_minimo: int = 1
     seguir_enlaces: bool = False
+    incluir_ocultos: bool = False
+    forzar_proyecto: bool = False
 
     def __post_init__(self) -> None:
         raiz = Path(self.raiz).expanduser()
@@ -301,6 +358,8 @@ class Configuracion:
         if not raiz.is_dir():
             raise ConfiguracionInvalida(f"La ruta no es una carpeta: {raiz}")
         _rechazar_ruta_de_sistema(raiz)
+        if not self.forzar_proyecto:
+            _rechazar_raiz_que_es_unidad(raiz)
         object.__setattr__(self, "raiz", raiz)
 
         if self.destino is None:
@@ -313,6 +372,12 @@ class Configuracion:
                 raise ConfiguracionInvalida(f"Destino invalido: {self.destino} ({exc})") from exc
             if destino.exists() and not destino.is_dir():
                 raise ConfiguracionInvalida(f"El destino existe y no es carpeta: {destino}")
+            # El destino tambien se valida: volcar un acervo dentro de
+            # `C:\Windows\System32` es tan destructivo como organizar esa
+            # carpeta, y hasta ahora solo se comprobaba el origen.
+            _rechazar_ruta_de_sistema(destino)
+            if destino.is_dir() and not self.forzar_proyecto:
+                _rechazar_raiz_que_es_unidad(destino)
             object.__setattr__(self, "destino", destino)
 
         if self.profundidad is None:
@@ -391,6 +456,12 @@ class Configuracion:
             Path(__file__).resolve().parents[1],
         }
         if not self.reprocesar:
-            rutas.update(destino / tipo.carpeta for tipo in TipoMedia)
-            rutas.update(destino / categoria.carpeta for categoria in Categoria)
+            # Solo se excluyen las carpetas que ESTE modo produce. Excluirlas
+            # todas siempre hacia que `--modo media` se saltara una carpeta
+            # preexistente llamada `Documentos` o `Juegos`, dejando sin
+            # organizar las fotos que hubiera dentro y sin decirlo.
+            if self.modo.incluye_media:
+                rutas.update(destino / tipo.carpeta for tipo in TipoMedia)
+            if self.modo.incluye_archivos:
+                rutas.update(destino / categoria.carpeta for categoria in Categoria)
         return frozenset(rutas)

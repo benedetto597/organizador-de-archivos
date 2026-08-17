@@ -102,7 +102,12 @@ _reg(Categoria.COMPRIMIDOS, "Otros", ".cab", ".arj", ".lzh", ".ace", ".sit", ".s
 # --------------------------------------------------------------------------- #
 # Instaladores
 # --------------------------------------------------------------------------- #
-_reg(Categoria.INSTALADORES, "Windows", ".exe", ".msi", ".msix", ".msixbundle", ".appx", ".appxbundle", ".msp", ".msu")
+# El subtipo NO se llama "Windows": ese nombre esta en CARPETAS_NO_TRANSITABLES,
+# asi que la carpeta creada aqui quedaria en un punto ciego. El escaneo no
+# volveria a entrar en ella y la validacion de rutas rechazaria apuntar la
+# herramienta ahi. Hay una prueba que verifica que ningun nombre de categoria ni
+# de subtipo colisione con esa lista.
+_reg(Categoria.INSTALADORES, "Ejecutables-Windows", ".exe", ".msi", ".msix", ".msixbundle", ".appx", ".appxbundle", ".msp", ".msu")
 _reg(Categoria.INSTALADORES, "Imagenes-de-disco", ".iso", ".img", ".bin", ".cue", ".mdf", ".nrg", ".dmg", ".toast")
 _reg(Categoria.INSTALADORES, "Android", ".apk", ".xapk", ".apks", ".aab", ".obb")
 _reg(Categoria.INSTALADORES, "Linux", ".deb", ".rpm", ".appimage", ".snap", ".flatpak", ".pkg")

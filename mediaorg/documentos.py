@@ -17,8 +17,10 @@ externo hay 2.714 PDF y 671 `.docx` que se benefician de esto.
 from __future__ import annotations
 
 import logging
+import lzma
 import re
 import zipfile
+import zlib
 from datetime import datetime
 from pathlib import Path
 from typing import Final
@@ -56,7 +58,20 @@ _RE_CREATED_XML = re.compile(
 )
 _RE_PDF_FECHA = re.compile(rb"/CreationDate\s*\(\s*D?:?\s*(\d{8}(?:\d{0,6})?)")
 
-_ERRORES_ZIP = (zipfile.BadZipFile, KeyError, OSError, ValueError, RuntimeError, EOFError)
+#: `zlib.error` y `lzma.LZMAError` heredan de `Exception`, no de `OSError`, asi
+#: que hay que nombrarlas: un documento con el flujo comprimido danado las lanza.
+#: En la practica `ZipFile` suele convertirlas en `BadZipFile` antes de que
+#: salgan, pero enumerarlas cuesta una linea y cierra el hueco.
+_ERRORES_ZIP = (
+    zipfile.BadZipFile,
+    KeyError,
+    OSError,
+    ValueError,
+    RuntimeError,
+    EOFError,
+    zlib.error,
+    lzma.LZMAError,
+)
 
 
 def _valida(momento: datetime | None) -> datetime | None:

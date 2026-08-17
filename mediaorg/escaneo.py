@@ -26,7 +26,13 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .config import CARPETAS_NO_TRANSITABLES, MARCADORES_DE_UNIDAD, Configuracion
+from .config import (
+    ARCHIVOS_BASURA_DEL_SISTEMA,
+    CARPETAS_NO_TRANSITABLES,
+    MARCADORES_DE_UNIDAD,
+    MARCADORES_DE_UNIDAD_FUERTES,
+    Configuracion,
+)
 from .rutas_seguras import ruta_del_sistema
 from .tipos import TipoMedia, tipo_por_extension
 
@@ -37,6 +43,8 @@ _log = logging.getLogger(__name__)
 #: Atributo de Windows que marca symlinks, junctions y puntos de montaje. El
 #: modulo `stat` solo lo define en Windows, de ahi el valor de respaldo.
 _REPARSE_POINT = getattr(_stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+_OCULTO = getattr(_stat, "FILE_ATTRIBUTE_HIDDEN", 0x2)
+_DE_SISTEMA = getattr(_stat, "FILE_ATTRIBUTE_SYSTEM", 0x4)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +91,8 @@ class ResumenEscaneo:
     aceptados_archivos: int = 0
     ignorados_extension: int = 0
     ignorados_tamano: int = 0
+    #: Ocultos, de sistema, dotfiles y basura conocida como `Thumbs.db`.
+    ignorados_ocultos: int = 0
     enlaces_omitidos: int = 0
     carpetas: int = 0
     errores: int = 0
@@ -110,6 +120,27 @@ def _es_enlace(entrada: os.DirEntry[str]) -> bool:
     return bool(atributos & _REPARSE_POINT)
 
 
+def _es_oculto_o_basura(ruta: Path, info: os.stat_result) -> bool:
+    """True si el archivo es del sistema y no del usuario.
+
+    Tres criterios: un nombre de basura conocida (`Thumbs.db`, `desktop.ini`),
+    los atributos de oculto o de sistema en Windows, y el nombre que empieza por
+    punto, convencion de archivo interno en cualquier plataforma.
+
+    Importa desde que el modo `archivos` acepta toda extension: sin este filtro,
+    `desktop.ini` acababa en `Codigo\\Configuracion\\` y `Thumbs.db` en
+    `Bases-de-datos\\Bases-locales\\`. Mover el primero cambia el aspecto de la
+    carpeta que lo contiene.
+    """
+    nombre = ruta.name.casefold()
+    if nombre in ARCHIVOS_BASURA_DEL_SISTEMA:
+        return True
+    if nombre.startswith("."):
+        return True
+    atributos = getattr(info, "st_file_attributes", 0)
+    return bool(atributos & (_OCULTO | _DE_SISTEMA))
+
+
 def _identidad(ruta: Path) -> tuple[int, int] | None:
     """Identidad del directorio en su volumen: `(st_dev, st_ino)`.
 
@@ -129,14 +160,14 @@ def _identidad(ruta: Path) -> tuple[int, int] | None:
 _MAX_HIJOS_INSPECCIONADOS = 20
 
 
-def _inspeccionar(carpeta: Path) -> tuple[str | None, list[Path]]:
+def _inspeccionar(carpeta: Path, marcadores: frozenset[str]) -> tuple[str | None, list[Path]]:
     """Lee un directorio una vez: devuelve su marcador y sus subcarpetas."""
     subcarpetas: list[Path] = []
     try:
         with os.scandir(ruta_del_sistema(carpeta)) as entradas:
             for entrada in entradas:
                 nombre = entrada.name.casefold()
-                if nombre in MARCADORES_DE_UNIDAD:
+                if nombre in marcadores:
                     return entrada.name, subcarpetas
                 # `.sln` y `.csproj` se reconocen por sufijo, no por nombre.
                 if nombre.endswith((".sln", ".csproj", ".vcxproj", ".pyproj")):
@@ -151,11 +182,17 @@ def _inspeccionar(carpeta: Path) -> tuple[str | None, list[Path]]:
     return None, subcarpetas
 
 
-def marcador_de_unidad(carpeta: Path, niveles_extra: int = 0) -> str | None:
+def marcador_de_unidad(
+    carpeta: Path, niveles_extra: int = 0, solo_fuertes: bool = False
+) -> str | None:
     """Devuelve el marcador que hace indivisible a `carpeta`, o `None`.
 
     Args:
         carpeta: Carpeta a examinar.
+        solo_fuertes: Considerar unicamente los marcadores que por si solos
+            prueban que la carpeta ES un proyecto. Se usa al validar la carpeta
+            de inicio, donde un falso positivo bloquea el trabajo de la persona:
+            una carpeta de fotos con un `.gitignore` suelto no es un proyecto.
         niveles_extra: Cuantos niveles adicionales mirar cuando la carpeta no
             trae marcador propio. Un modulo descargado y descomprimido suele
             quedar como `descarga/modulo_real/__manifest__.py`, asi que un
@@ -168,13 +205,14 @@ def marcador_de_unidad(carpeta: Path, niveles_extra: int = 0) -> str | None:
         hallo en un nivel inferior. `None` si la carpeta es un contenedor
         corriente.
     """
-    marcador, subcarpetas = _inspeccionar(carpeta)
+    marcadores = MARCADORES_DE_UNIDAD_FUERTES if solo_fuertes else MARCADORES_DE_UNIDAD
+    marcador, subcarpetas = _inspeccionar(carpeta, marcadores)
     if marcador is not None:
         return marcador
     if niveles_extra <= 0:
         return None
     for hijo in subcarpetas[:_MAX_HIJOS_INSPECCIONADOS]:
-        interno = marcador_de_unidad(hijo, niveles_extra - 1)
+        interno = marcador_de_unidad(hijo, niveles_extra - 1, solo_fuertes)
         if interno is not None:
             return f"{hijo.name}/{interno}"
     return None
@@ -305,6 +343,11 @@ def _evaluar(
 
     if info.st_size < cfg.tamano_minimo:
         contador.ignorados_tamano += 1
+        return None
+
+    if not cfg.incluir_ocultos and _es_oculto_o_basura(ruta, info):
+        contador.ignorados_ocultos += 1
+        _log.debug("Oculto o basura del sistema, se ignora: %s", ruta)
         return None
 
     # Filtro por extension unicamente: abrir el archivo aqui costaria ~100 ms

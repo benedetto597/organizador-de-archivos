@@ -17,7 +17,7 @@ proceso sin sorpresas.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -170,7 +170,17 @@ def _analizar_archivo(item: ArchivoEncontrado) -> Analisis:
     No se abre con Pillow. La fecha sale de los metadatos del documento cuando
     el formato los expone (OOXML, OpenDocument, PDF), y si no, del nombre o del
     sistema de archivos.
+
+    Si la extension no esta en ninguna tabla se mira el contenido antes de
+    rendirse. Esto es lo que hace util a `--incluir-ext`: un `.raf` o un `.insv`
+    que en realidad es una imagen o un video acaba en Fotos o Videos en lugar de
+    en `Otros-Archivos`, porque los bytes magicos lo delatan.
     """
+    if clasificar_archivo(item.ruta) is None:
+        tipo_real = clasificar_con_cabecera(item.ruta, leer_cabecera(item.ruta))
+        if tipo_real is not TipoMedia.DESCONOCIDO:
+            return _analizar_media(replace(item, tipo=tipo_real))
+
     categoria, subtipo = _categoria_de(item.ruta)
     momento = (
         fecha_desde_documento(item.ruta)
@@ -218,6 +228,11 @@ def _analizar(item: ArchivoEncontrado) -> Analisis:
     """Cuerpo real del analisis. Ver `analizar` para el contrato publico."""
     if not item.es_media:
         return _analizar_archivo(item)
+    return _analizar_media(item)
+
+
+def _analizar_media(item: ArchivoEncontrado) -> Analisis:
+    """Analisis de foto, video o animacion. Una sola apertura del archivo."""
     ruta_os = ruta_del_sistema(item.ruta)
     lectura = _leer_imagen(ruta_os) if item.tipo.es_imagen else None
 

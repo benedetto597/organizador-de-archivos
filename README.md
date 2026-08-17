@@ -136,6 +136,8 @@ D:\Fotos\
 | `--tamano-minimo BYTES` | Ignorar archivos más chicos. |
 | `--reprocesar` | Incluir también las carpetas ya organizadas. |
 | `--seguir-enlaces` | Recorrer symlinks y junctions (desactivado por seguridad). |
+| `--incluir-ocultos` | Procesar ocultos, de sistema y los que empiezan por punto. Por defecto se ignoran, junto con `Thumbs.db` y `desktop.ini`. |
+| `--forzar-proyecto` | Permitir que la carpeta indicada sea la raíz de un proyecto. Por defecto se rechaza, porque organizarla lo desarma. |
 | `--procesos N` | Procesos paralelos. Por defecto `núcleos × 2`, con tope de 16 (ver Rendimiento). |
 | `--sin-manifiesto` | No escribir el registro de reversión (no recomendado). |
 | `--log ARCHIVO`, `-v`, `-q` | Control de registro. |
@@ -179,6 +181,18 @@ están resueltas y documentadas en el propio archivo.
 | Carpetas de sistema | Se **rechaza la corrida** si la ruta contiene `Windows`, `Program Files`, `ProgramData`, `AppData`, `$RECYCLE.BIN`, `System Volume Information`, `found.00x`, `Recovery`, `System32`… en cualquier nivel. Tampoco la raíz del disco del sistema. |
 | Raíces de proyecto | `.git`, `package.json`, `requirements.txt`, `pyproject.toml`, `pom.xml`, `__manifest__.py`, `node_modules`, `.venv`, `unins000.exe`, `*.sln`, `*.csproj` y unos treinta más. Se reportan y se dejan enteras. |
 | Subcarpetas, por defecto | El modo `archivos` se queda en el primer nivel: lo que esté anidado no se toca. |
+| La carpeta de inicio | Si **ella misma** es la raíz de un proyecto (marcador fuerte: `.git`, `package.json`, `requirements.txt`, `pom.xml`, `__manifest__.py`…), la corrida se rechaza. Apuntar la herramienta a un repositorio movería su `README.md` a `Documentos\Texto\` y sus `.py` a `Codigo\Python\`. |
+| El destino | `--destino` pasa por las mismas validaciones que el origen: no se puede volcar un acervo dentro de una carpeta de sistema ni dentro de un proyecto. |
+| Basura del sistema | `Thumbs.db`, `desktop.ini`, `.DS_Store`, los archivos con atributo de oculto o de sistema y los que empiezan por punto se ignoran. Mover `desktop.ini` cambia el aspecto de la carpeta que lo contiene. |
+
+Un detalle de precisión: los marcadores se separan en **fuertes** y **débiles**. Para rechazar
+la carpeta de inicio solo cuentan los fuertes, porque ahí un falso positivo bloquea trabajo
+legítimo: una carpeta de fotos con un `.gitignore` suelto no es un proyecto. Para no *entrar*
+en una subcarpeta se usa el conjunto amplio, donde ser conservador no cuesta nada.
+
+Y las carpetas de salida se excluyen del escaneo **solo en el modo que las produce**.
+Excluirlas siempre hacía que `--modo media` se saltara una carpeta preexistente llamada
+`Documentos` o `Juegos`, dejando sin organizar las fotos que hubiera dentro y sin decirlo.
 
 La detección de proyectos mira un nivel más abajo en las carpetas que no va a recorrer,
 porque un módulo descargado suele quedar como `descarga\modulo_real\__manifest__.py`. Ese
@@ -403,7 +417,7 @@ verificable.
 python -m unittest discover -s tests -t . -v
 ```
 
-196 pruebas, sin dependencias de prueba adicionales. Cubren los patrones de nombre reales,
+213 pruebas, sin dependencias de prueba adicionales. Cubren los patrones de nombre reales,
 el parser ISO-BMFF con `moov` al final del archivo, el saneado de rutas contra intentos de
 recorrido de directorios, la transitividad de la detección de duplicados, la garantía de no
 sobreescritura, los límites de trabajadores del sistema operativo y una corrida completa de

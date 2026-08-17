@@ -87,7 +87,7 @@ class Taxonomia(unittest.TestCase):
             ("app.py", Categoria.CODIGO, "Python"),
             ("analisis.ipynb", Categoria.CODIGO, "Notebooks"),
             ("libreria.jar", Categoria.COMPRIMIDOS, "ZIP"),
-            ("instalador.msi", Categoria.INSTALADORES, "Windows"),
+            ("instalador.msi", Categoria.INSTALADORES, "Ejecutables-Windows"),
             ("ubuntu.iso", Categoria.INSTALADORES, "Imagenes-de-disco"),
             ("cancion.mp3", Categoria.AUDIO, "Comprimido"),
             ("casa.skp", Categoria.DISENO, "3D"),
@@ -116,6 +116,26 @@ class Taxonomia(unittest.TestCase):
         for categoria in Categoria:
             with self.subTest(categoria=categoria):
                 self.assertTrue(categoria.carpeta)
+
+    def test_ningun_nombre_de_salida_es_intransitable(self) -> None:
+        """Una carpeta de salida no puede llamarse como algo que no se recorre.
+
+        Regresion: el subtipo de instaladores se llamaba `Windows`, que esta en
+        `CARPETAS_NO_TRANSITABLES`. La carpeta se creaba, pero el escaneo nunca
+        volvia a entrar en ella y la validacion de rutas rechazaba apuntar la
+        herramienta ahi, dejando esos archivos en un punto ciego.
+        """
+        from mediaorg.categorias import _TABLA
+        from mediaorg.config import CARPETAS_NO_TRANSITABLES
+        from mediaorg.tipos import TipoMedia
+
+        nombres = {c.carpeta for c in Categoria}
+        nombres |= {t.carpeta for t in TipoMedia}
+        nombres |= {subtipo for _, subtipo in _TABLA.values()}
+        colisiones = {n for n in nombres if n.casefold() in CARPETAS_NO_TRANSITABLES}
+        self.assertEqual(
+            colisiones, set(), f"nombres de salida que el escaneo ignoraria: {colisiones}"
+        )
 
 
 class FechaDeDocumentos(unittest.TestCase):
@@ -276,6 +296,134 @@ class RutasProtegidas(unittest.TestCase):
             cfg = Configuracion(raiz=Path(temporal))
             self.assertTrue(cfg.raiz.is_dir())
 
+    def test_destino_en_carpeta_de_sistema_se_rechaza(self) -> None:
+        """Regresion: el destino no pasaba por ninguna validacion."""
+        objetivo = Path(r"C:\Windows\System32")
+        if not objetivo.is_dir():
+            self.skipTest("no es Windows")
+        with tempfile.TemporaryDirectory() as temporal:
+            with self.assertRaises(ConfiguracionInvalida):
+                Configuracion(raiz=Path(temporal), destino=objetivo)
+
+
+class RaizQueEsProyecto(unittest.TestCase):
+    """Regresion: la carpeta de inicio estaba exenta del control de unidad.
+
+    Apuntar la herramienta a un repositorio movia su `README.md` a
+    `Documentos\\Texto\\`, sus `.py` a `Codigo\\Python\\` y hasta el propio
+    `requirements.txt` que lo identificaba como proyecto.
+    """
+
+    def setUp(self) -> None:
+        self._temporal = tempfile.TemporaryDirectory()
+        self.base = Path(self._temporal.name) / "mi-repo"
+        self.base.mkdir()
+        crear_archivo(self.base / "requirements.txt", b"pillow\n")
+        crear_archivo(self.base / "README.md", b"# proyecto\n")
+        crear_archivo(self.base / "app.py", b"print(1)\n")
+
+    def tearDown(self) -> None:
+        self._temporal.cleanup()
+
+    def test_se_rechaza_por_defecto(self) -> None:
+        with self.assertRaises(ConfiguracionInvalida) as capturado:
+            Configuracion(raiz=self.base, modo=ModoContenido.TODO)
+        self.assertIn("requirements.txt", str(capturado.exception))
+
+    def test_el_mensaje_dice_como_continuar(self) -> None:
+        with self.assertRaises(ConfiguracionInvalida) as capturado:
+            Configuracion(raiz=self.base)
+        self.assertIn("--forzar-proyecto", str(capturado.exception))
+
+    def test_con_forzar_proyecto_si_procede(self) -> None:
+        cfg = Configuracion(raiz=self.base, modo=ModoContenido.TODO, forzar_proyecto=True)
+        self.assertGreater(len(organizar(cfg).plan.movimientos), 0)
+
+    def test_una_carpeta_contenedora_normal_si_se_acepta(self) -> None:
+        contenedora = self.base.parent
+        cfg = Configuracion(raiz=contenedora, modo=ModoContenido.TODO, procesos=1)
+        self.assertTrue(cfg.raiz.is_dir())
+        # El proyecto queda dentro y sus archivos no entran al plan.
+        origenes = {m.origen.name for m in organizar(cfg).plan.movimientos}
+        self.assertNotIn("requirements.txt", origenes)
+
+
+class OcultosYBasuraDelSistema(unittest.TestCase):
+    """Regresion: `desktop.ini` acabo en `Codigo\\Configuracion\\`."""
+
+    def setUp(self) -> None:
+        self._temporal = tempfile.TemporaryDirectory()
+        self.base = Path(self._temporal.name)
+        crear_archivo(self.base / "Thumbs.db", b"miniaturas")
+        crear_archivo(self.base / "desktop.ini", b"[.ShellClassInfo]\n")
+        crear_archivo(self.base / ".gitignore", b"*.pyc\n")
+        crear_archivo(self.base / "normal.pdf", b"%PDF-1.4 real")
+
+    def tearDown(self) -> None:
+        self._temporal.cleanup()
+
+    def _origenes(self, **extra) -> set[str]:
+        parametros = {"raiz": self.base, "modo": ModoContenido.ARCHIVOS, "procesos": 1}
+        parametros.update(extra)
+        return {m.origen.name for m in organizar(Configuracion(**parametros)).plan.movimientos}
+
+    def test_no_organiza_basura_del_sistema(self) -> None:
+        origenes = self._origenes()
+        self.assertNotIn("Thumbs.db", origenes)
+        self.assertNotIn("desktop.ini", origenes)
+
+    def test_no_organiza_archivos_que_empiezan_por_punto(self) -> None:
+        self.assertNotIn(".gitignore", self._origenes())
+
+    def test_si_organiza_lo_normal(self) -> None:
+        self.assertIn("normal.pdf", self._origenes())
+
+    def test_con_incluir_ocultos_si_entran(self) -> None:
+        origenes = self._origenes(incluir_ocultos=True)
+        self.assertIn("Thumbs.db", origenes)
+        self.assertIn(".gitignore", origenes)
+
+    def test_se_cuentan_los_ignorados(self) -> None:
+        from mediaorg.escaneo import ResumenEscaneo, escanear
+
+        cfg = Configuracion(raiz=self.base, modo=ModoContenido.ARCHIVOS, procesos=1)
+        resumen = ResumenEscaneo()
+        list(escanear(cfg, resumen))
+        self.assertEqual(resumen.ignorados_ocultos, 3)
+
+
+class ModoNoOcultaCarpetasReales(unittest.TestCase):
+    """Regresion: `--modo media` se saltaba una carpeta llamada `Documentos`."""
+
+    def setUp(self) -> None:
+        self._temporal = tempfile.TemporaryDirectory()
+        self.base = Path(self._temporal.name)
+        for relativa in ("Documentos/foto1.png", "Juegos/foto2.png", "Viajes/foto3.png"):
+            crear_imagen(self.base / relativa, (7, 8, 9))
+
+    def tearDown(self) -> None:
+        self._temporal.cleanup()
+
+    def test_modo_media_ve_las_fotos_de_esas_carpetas(self) -> None:
+        from mediaorg.escaneo import escanear
+
+        cfg = Configuracion(raiz=self.base, modo=ModoContenido.MEDIA, procesos=1)
+        vistos = {i.nombre for i in escanear(cfg)}
+        self.assertEqual(vistos, {"foto1.png", "foto2.png", "foto3.png"})
+
+    def test_modo_archivos_si_las_excluye(self) -> None:
+        """En el modo que SI produce esas carpetas, excluirlas es lo correcto."""
+        from mediaorg.escaneo import escanear
+
+        cfg = Configuracion(
+            raiz=self.base, modo=ModoContenido.ARCHIVOS, profundidad=0, procesos=1
+        )
+        rutas = cfg.rutas_excluidas()
+        self.assertIn(self.base / "Documentos", rutas)
+        self.assertIn(self.base / "Juegos", rutas)
+        self.assertNotIn(self.base / "Viajes", rutas)
+        list(escanear(cfg))
+
 
 class ArbolDeArchivos(unittest.TestCase):
     """Jerarquia Categoria -> Subtipo -> Anio y corrida completa."""
@@ -313,7 +461,7 @@ class ArbolDeArchivos(unittest.TestCase):
         self.assertEqual(destinos["carta.docx"], ("Documentos", "Word", "2021", "carta.docx"))
         self.assertEqual(destinos["informe.pdf"], ("Documentos", "PDF", "2024", "informe.pdf"))
         self.assertEqual(destinos["respaldo.sql"][:2], ("Bases-de-datos", "Scripts-SQL"))
-        self.assertEqual(destinos["instalador.msi"][:2], ("Instaladores", "Windows"))
+        self.assertEqual(destinos["instalador.msi"][:2], ("Instaladores", "Ejecutables-Windows"))
 
     def test_sin_clasificar_va_a_otros_con_su_extension(self) -> None:
         informe = organizar(self._cfg())

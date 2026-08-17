@@ -152,6 +152,7 @@ class Informe:
                 "aceptados_archivos": self.escaneo.aceptados_archivos,
                 "ignorados_extension": self.escaneo.ignorados_extension,
                 "ignorados_tamano": self.escaneo.ignorados_tamano,
+                "ignorados_ocultos": self.escaneo.ignorados_ocultos,
                 "enlaces_omitidos": self.escaneo.enlaces_omitidos,
                 "carpetas_sin_recorrer": self.escaneo.carpetas_sin_recorrer,
                 "carpetas_de_sistema_omitidas": self.escaneo.carpetas_de_sistema_omitidas,
