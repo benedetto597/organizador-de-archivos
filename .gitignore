@@ -1,0 +1,50 @@
+# Bytecode y caches de Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Salida que genera la propia herramienta al correr
+_ORGANIZADOR/
+plan-*.csv
+resumen-*.json
+manifiesto-*.jsonl
+log-*.txt
+
+# Carpetas de destino, si alguien ejecuta la herramienta dentro del repo
+/Fotos/
+/Videos/
+/Animaciones/
+/BORRAR/
+/Documentos/
+/Comprimidos/
+/Instaladores/
+/Audio/
+/Codigo/
+/Diseno/
+/Bases-de-datos/
+/Correo/
+/Certificados-y-llaves/
+/Maquinas-virtuales/
+/Redes/
+/Juegos/
+/Subtitulos/
+/Fuentes/
+/Atajos/
+/Torrents/
+/Otros-Archivos/
+
+# Editores y sistema operativo
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store

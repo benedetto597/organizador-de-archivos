@@ -1,0 +1,20 @@
+# Dependencias del organizador de imagenes y videos.
+# Todas son software libre y gratuito, sin componentes de pago ni telemetria.
+#
+# Instalar con:
+#   python -m pip install -r requirements.txt
+
+# Pillow - decodificacion de imagenes, lectura de EXIF y de dimensiones.
+# Licencia MIT-CMU (permisiva, gratuita). Es la unica dependencia obligatoria:
+# fechas de video, hashing, paralelismo y CLI usan solo la biblioteca estandar.
+Pillow>=10.0.0
+
+# ---------------------------------------------------------------------------
+# Opcionales. Descomentar solo si el acervo lo requiere.
+# ---------------------------------------------------------------------------
+
+# Soporte HEIC/HEIF (fotos de iPhone). Licencia Apache-2.0 / LGPL de libheif.
+# pillow-heif>=0.16.0
+
+# Soporte para RAW de camaras (CR2, NEF, ARW...). Licencia MIT.
+# rawpy>=0.21.0
