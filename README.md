@@ -1,5 +1,22 @@
 # Organizador de archivos
 
+<!-- en-summary -->
+> **In English.** Python CLI that sorts a folder into category / date / source subfolders and isolates exact copies in a `BORRAR` (quarantine) folder **without deleting anything**. The full documentation below is in Spanish.
+
+| | |
+|---|---|
+| **Problem** | Tens of thousands of photos, videos and downloads, with duplicates, spread across drives. Naive organizers recurse into git repos, `node_modules` or installed programs and break them. |
+| **Approach** | Dry run by default: every proposed move goes to a CSV plan you review before `--ejecutar`. Byte- and pixel-level duplicate detection (union-find), project-root and system-folder protection, and a manifest to revert any run. |
+| **Measured** | On a real archive of 57,701 files / 280 GB on a USB HDD: one open per file for type, size and EXIF date took 5,000 cached files from 550 s to 11.9 s; an oversubscribed pool (16 workers vs 7) cut cold-file cost from 62.8 to 31.2 ms per file. |
+| **Quality** | 213 tests (`unittest`), doctests run as tests, one regression test per defect found in code review. |
+| **Stack** | Python 3.10+, Pillow, `multiprocessing` |
+
+```bash
+python -m pip install -r requirements.txt
+python organizar.py "D:\Photos"             # dry run: writes the plan CSV, moves nothing
+python organizar.py "D:\Photos" --ejecutar  # apply
+```
+
 Ordena una carpeta en subcarpetas por categoría, fecha y origen, y aísla las copias
 idénticas en una carpeta `BORRAR` **sin eliminar nada**.
 
